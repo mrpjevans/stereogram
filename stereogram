@@ -1,0 +1,159 @@
+#!/bin/bash
+
+# stereogram
+# (c) 2019 PJ Evans <pj@mrpjevans.com>
+# See LICENSE
+# See README.md for usage
+
+VERSION="1.0.0"
+
+function process_file () {
+    extension="${f##*.}"
+    if [ $extension == "MPO" ] || [ $extension == "mpo" ]; then
+        
+        base=${f##*/}
+        echo "Processing $base"
+
+        name="${base%.*}"
+        L="${WRKDIR}/${name}_L.jpg"
+        R="${WRKDIR}/${name}_R.jpg"
+
+        # Split
+        echo Splitting
+        if [ -f "$L" ] && [ -z $NO_OVERWRITE ]; then
+            unlink "$L"
+        fi
+        if [ ! -f "$L" ]; then
+            exiftool -q "$f" -mpimage2 -b > "$L"
+        fi
+        if [ -f "$R" ] && [ -z $NO_OVERWRITE ]; then
+            unlink "$R"
+        fi
+        if [ ! -f "$R" ]; then
+            exiftool -q -trailer:all= "$f" -o "$R"
+        fi
+
+        # Enhance
+        if [ ! -z "$ENHANCE" ]; then
+            echo Enhancing
+            convert -enhance -equalize -contrast "$L" "$L"
+            convert -enhance -equalize -contrast "$R" "$R"
+        fi
+
+        # Create stereo
+        if [ "$STEREO_TYPE" == "triple" ] || [ "$STEREO_TYPE" == "all" ]; then
+            echo "Creating triple"
+            convert "$L" "$R" "$L" +append "${OUTPUT}/${name}_triple.jpg"
+        fi
+
+        if [ "$STEREO_TYPE" == "crosseye" ] || [ "$STEREO_TYPE" == "all" ]; then
+            echo "Creating crosseye"
+            convert "$L" "$R" +append "${OUTPUT}/${name}_crosseye.jpg"
+        fi
+
+        if [ "$STEREO_TYPE" == "parallel" ] || [ "$STEREO_TYPE" == "all" ]; then
+            echo "Creating parallel"
+            convert "$R" "$L" +append "${OUTPUT}/${name}_parallel.jpg"
+        fi
+
+        if [ "$STEREO_TYPE" == "anaglyph" ] || [ "$STEREO_TYPE" == "all" ]; then
+            echo "Creating anaglyph"
+            convert "$L" -set colorspace RGB -colorspace gray "$L"
+            convert "$R" -set colorspace RGB -colorspace gray "$R"
+            composite -stereo +X "$L" "$R" "${OUTPUT}/${name}_anaglyph.jpg"
+        fi
+
+        # Tidy up
+        if [ -z $KEEPLR ]; then
+            echo "Removing L/R images"
+            unlink "$L"
+            unlink "$R"
+        fi
+
+    fi
+}
+
+while getopts “:i:s:o:w:ekn” opt; do
+  case $opt in
+    i) INPUT=$OPTARG ;;
+    s) STEREO_TYPE=$OPTARG ;;
+    o) OUTPUT=$OPTARG ;;
+    w) WRKDIR=$OPTARG ;;
+    e) ENHANCE=1 ;;
+    k) KEEPLR=1 ;;
+    n) NO_OVERWRITE=1 ;;
+  esac
+done
+
+echo "Stereogram v$VERSION"
+echo "=============================="
+
+if [ -z "$INPUT" ]; then
+    INPUT=$PWD
+fi
+echo "Input directory/file: $INPUT"
+if [ ! -d "$INPUT" ] && [ ! -f "$INPUT" ]; then
+    echo Input file/directory not found
+    exit 1
+fi
+
+if [ ! -z "$OUTPUT" ]; then
+    if [ ! -d "$OUTPUT" ]; then
+        echo "Output directory not found"
+        exit 1
+    fi
+elif [ -d "$INPUT" ]; then
+    OUTPUT=$INPUT
+else
+    OUTPUT=${INPUT%/*}
+fi
+echo "Output directory/file : $OUTPUT"
+
+if [ ! -z "$WRKDIR" ]; then
+    if [ ! -d "$WRKDIR" ]; then
+        echo "Working directory not found"
+        exit 1
+    fi
+elif [ -d "$INPUT" ]; then
+    WRKDIR=$INPUT
+else
+    WRKDIR=${INPUT%/*}
+fi
+
+echo "Working directory: $WRKDIR"
+
+if [ -z $STEREO_TYPE ]; then
+    STEREO_TYPE="triple"
+elif [ "$STEREO_TYPE" != 'triple' ] &&
+     [ "$STEREO_TYPE" != 'anaglyph' ] &&
+     [ "$STEREO_TYPE" != 'crosseye' ] &&
+     [ "$STEREO_TYPE" != 'parallel' ] &&
+     [ "$STEREO_TYPE" != 'all' ] &&
+     [ "$STEREO_TYPE" != 'none' ]; then
+    echo "Stereo types must be one of: triple anaglyph crosseye parallel all none"
+    exit 1
+fi
+echo "Stereo type: $STEREO_TYPE"
+
+if [ ! -z $ENHANCE ]; then
+    echo "Image auto-enhance enabled"
+fi
+
+if [ ! -z $KEEPLR ]; then
+    echo "Keeping left/right split files"
+fi
+
+if [ ! -z $NO_OVERWRITE ]; then
+    echo "Will not overwrite existing left/right split files"
+fi
+
+echo
+
+if [ ! -f "$INPUT" ]; then
+    for f in "$INPUT"/*; do
+        process_file
+    done
+else
+    f=$INPUT
+    process_file
+fi
