@@ -18,7 +18,7 @@ Tested on macOS Mojave. Should work on other Linux or BSD distros.
 
 ## Usage
 
-To create 'triples' from MPOs in the current working directory:directory:
+To create 'triples' from MPOs in the current working directory:
 
 ```bash
 stereogram
